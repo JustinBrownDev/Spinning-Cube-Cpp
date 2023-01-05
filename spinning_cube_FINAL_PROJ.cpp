@@ -17,6 +17,7 @@ struct geoSolid{
   int numPoints;
   int* projection;
   int* connectedPoints;
+  int* oppositeConnections;
   int numConnectedPoints;
   int* faces;
   int numFaces;
@@ -32,16 +33,15 @@ struct perspectivePoint {
 struct displayConfig {
     double xyRatio = 0.5;
     int gridWidth, gridHeight;
-    int max_screen_width = 300;
+    int max_screen_width = 200;
     int max_screen_height = 200;
-    double speedScalar = 7;
-    int delayNanos = 10000 + 7500 / speedScalar;
-    double speedPiDivisor = (1000 / speedScalar) * 2;
+    int delayNanos = 80000000;
+    double speedPiDivisor = 60;
     double thetaX = M_PI / speedPiDivisor;
     double thetaY = M_PI / speedPiDivisor;
     double thetaZ = M_PI / speedPiDivisor;
     double pointScalar = 40;
-    double zoomScalar = 2;
+    double zoomScalar = 1.5;
     double pushUp = 4;
     double pushRight = 0;
     double xPower = 0.2;
@@ -83,6 +83,7 @@ void init_shape(int shapeNum, geoSolid& shape);
 void init_perspectives(perspectivePoint* perspectives);
 
 
+
 int main(int argc, char const* argv[]) {
     /*==============SETUP==============*/
     double runningthetaX;
@@ -97,7 +98,7 @@ int main(int argc, char const* argv[]) {
     perspectivePoint perspectives[2];
     geoSolid shape;
     std::string* canvas;
-    
+
     init_shape(0, shape);
     init_perspectives(perspectives);
 
@@ -110,16 +111,18 @@ int main(int argc, char const* argv[]) {
     dispConf.gridWidth = dimensions[0];
     dispConf.gridHeight = dimensions[1];
     canvas = new std::string[dispConf.gridHeight];
+
     int lowestY = 0;
     int highestY = dispConf.gridHeight;
 
-    fill_newlines(500); //Fills Terminal with newline chars to avoid jittering effect
+    //fill_newlines(500); //Fills Terminal with newline chars to avoid jittering effect
 
-    if (print_debug_information) printf("X:%i  Y:%i\n", dispConf.gridWidth, dispConf.gridHeight); 
+    if (print_debug_information) printf("X:%i  Y:%i\n", dispConf.gridWidth, dispConf.gridHeight);
     /*==============MAIN LOOP==============*/
     auto startTime = std::chrono::system_clock::now();
     double ellapsed;
     for (int i = 0; i < loop_max_iterations; i++) {
+
         //Calculate thetas to use this iteration
         ellapsed = (std::chrono::system_clock::now() - startTime).count();
         runningthetaX = dispConf.thetaX * (std::cos(ellapsed * dispConf.xPower) + 13 / 12) * dispConf.xPower;
@@ -132,11 +135,11 @@ int main(int argc, char const* argv[]) {
         //rotate points
         rotate(shape, runningthetaX, runningthetaY, runningthetaZ);
 
-        //fix misalignments in points due to floating point arithmetic 
+        //fix misalignments in points due to floating point arithmetic
         fixSideLength(shape, targetLineLength);
         fixRadialDistance(shape, targetRadialDistance);
 
-        //project 3d points to 2d planes 
+        //project 3d points to 2d planes
         project(shape, perspectives, dispConf);
 
         //calculate y=mx+b type equations for each projected connection
@@ -149,6 +152,7 @@ int main(int argc, char const* argv[]) {
         int* yRangePointer = paint(canvas, shape, dispConf, false);
         lowestY = *(yRangePointer);
         highestY = *(yRangePointer + 1);
+
         //sleep
         if (i > 50) { // let the loop run for a bit so the yRange stablizes
             std::this_thread::sleep_for(std::chrono::nanoseconds(dispConf.delayNanos));
@@ -156,8 +160,6 @@ int main(int argc, char const* argv[]) {
             //print canvas
             print(canvas, dispConf, lowestY);
         }
-        
-
 
     }
     return 0;
@@ -257,7 +259,7 @@ void project(geoSolid& shape, perspectivePoint(&perspectives)[2], displayConfig&
 
 void getCorrectFaces(geoSolid& shape, std::string* canvas, displayConfig& dispConf) {
     //clears canvas because this function is the first place where it might be written to
-    static int* lastFacesToPrint = new int[6];
+    //static int* lastFacesToPrint = new int[6];
     for (int i = 0; i < dispConf.gridHeight; i++) {
         canvas[i] = std::string(dispConf.gridWidth, dispConf.background_char);
     }
@@ -267,6 +269,7 @@ void getCorrectFaces(geoSolid& shape, std::string* canvas, displayConfig& dispCo
     shape.numFacesToPrint = 0;
     int numFound = 0;
     int foundIntersection[12] = {};
+
     for (int i = 0; i < shape.numConnectedPoints; i++) {
         //connection 1, looking for another connection that intersects it
         double m1 = *(shape.lines + (i * 4));
@@ -303,15 +306,15 @@ void getCorrectFaces(geoSolid& shape, std::string* canvas, displayConfig& dispCo
                         if (c1i1 != c2i2 && c1i1 != c2i1 && c1i2 != c2i1 && c1i2 != c2i2) {
                             //record this so we dont repeat the intersection
                             foundIntersection[i] = w;
-                            //calculate the average z coords of each connection to find which one is 'on top' i.e. should be displayed 
+                            //calculate the average z coords of each connection to find which one is 'on top' i.e. should be displayed
                             double c1avgZ = (*(shape.points + (3 * c1i1) + 2) + *(shape.points + (3 * c1i2) + 2)) / 2;
                             double c2avgZ = (*(shape.points + (3 * c2i1) + 2) + *(shape.points + (3 * c2i2) + 2)) / 2;
-                            
+
                             int* facesToPaint = new int[2];
                             if (c1avgZ - c2avgZ > 8) { //if connection1 is on top
                                 //get faces that have this connection as a line segment
                                 facesToPaint = indexOfIntArr((shape.connectedPoints + (i * 2)), shape.faces, 6, 4, 2);
-                                
+
                                 //checks to make sure we're not throwing a -1 into the array
                                 if (facesToPaint[0] >= 0) {
                                     addFaceToPrint(shape, facesToPaint[0]);
@@ -327,7 +330,7 @@ void getCorrectFaces(geoSolid& shape, std::string* canvas, displayConfig& dispCo
                                     printf("Print Faces %i & %i ", facesToPaint[0], facesToPaint[1]);
                                     canvas[static_cast<int>(xAxis - y + 0.5 + dispConf.pushUp)][static_cast<int>(x + 0.5 + yAxis)] = 'X';
                                 }
-                                
+
                             }
                             else if (c2avgZ - c1avgZ > 8) {//if connection2 is on top
                                 facesToPaint = indexOfIntArr((shape.connectedPoints + (w * 2)), shape.faces, 6, 4, 2);
@@ -374,6 +377,11 @@ void getCorrectFaces(geoSolid& shape, std::string* canvas, displayConfig& dispCo
 
 int* paint(std::string* canvas, geoSolid& shape, displayConfig& dispConf, bool doShadow)
 {   /*  Convert projected points to printable canvas of strings  */
+    int* shadowCanvas = new int[dispConf.gridHeight * 2];
+    int unpopulatedFlag = -9999;
+    for (int u = 0; u < dispConf.gridHeight * 2; u++) {
+        *(shadowCanvas + u) = unpopulatedFlag;
+    }
     int planeIndex = 2;
     if (doShadow) {
         planeIndex = 0;
@@ -416,7 +424,7 @@ int* paint(std::string* canvas, geoSolid& shape, displayConfig& dispConf, bool d
                     vertical = true;
                 }
                 //else {
-                //    
+                //
                 //}
             }
             //Plot points on cavas
@@ -457,6 +465,12 @@ int* paint(std::string* canvas, geoSolid& shape, displayConfig& dispConf, bool d
                         bool isNotX = thisChar != 'X';
                         if (isNotOverLapping && isNotX) {
                             canvas[yOnCanvas][x + yAxis] = dispConf.connectionChars[connectionCharIndex];
+                            if (doShadow) {
+                                if (*(shadowCanvas + yOnCanvas * 2 + 0) == unpopulatedFlag || *(shadowCanvas + yOnCanvas * 2 + 0) > x + yAxis)
+                                    *(shadowCanvas + yOnCanvas * 2 + 0) = x + yAxis;
+                                if (*(shadowCanvas + yOnCanvas * 2 + 1) == unpopulatedFlag || *(shadowCanvas + yOnCanvas * 2 + 1) < x + yAxis)
+                                    *(shadowCanvas + yOnCanvas * 2 + 1) = x + yAxis;
+                            }
                             if (yOnCanvas > highestY) {
                                 highestY = yOnCanvas;
                             }
@@ -516,6 +530,12 @@ int* paint(std::string* canvas, geoSolid& shape, displayConfig& dispConf, bool d
                             bool isNotX = thisChar != 'X';
                             if (isNotOverLapping && isNotX) {
                                 canvas[yToPlot][x + yAxis] = dispConf.connectionChars[connectionCharIndex];
+                                if (doShadow) {
+                                    if (*(shadowCanvas + yToPlot * 2 + 0) == unpopulatedFlag || *(shadowCanvas + yToPlot * 2 + 0) > x + yAxis)
+                                        *(shadowCanvas + yToPlot * 2 + 0) = x + yAxis;
+                                    if (*(shadowCanvas + yToPlot * 2 + 1) == unpopulatedFlag || *(shadowCanvas + yToPlot * 2 + 1) < x + yAxis)
+                                        *(shadowCanvas + yToPlot * 2 + 1) = x + yAxis;
+                                }
                                 if (yToPlot > highestY) {
                                     highestY = yToPlot;
                                 }
@@ -535,6 +555,12 @@ int* paint(std::string* canvas, geoSolid& shape, displayConfig& dispConf, bool d
                             bool isNotX = thisChar != 'X';
                             if (isNotOverLapping && isNotX) {
                                 canvas[yToPlot][x + yAxis] = dispConf.connectionChars[connectionCharIndex];
+                                if (doShadow) {
+                                    if (*(shadowCanvas + yToPlot * 2 + 0) == unpopulatedFlag || *(shadowCanvas + yToPlot * 2 + 0) > x + yAxis)
+                                        *(shadowCanvas + yToPlot * 2 + 0) = x + yAxis;
+                                    if (*(shadowCanvas + yToPlot * 2 + 1) == unpopulatedFlag || *(shadowCanvas + yToPlot * 2 + 1) < x + yAxis)
+                                        *(shadowCanvas + yToPlot * 2 + 1) = x + yAxis;
+                                }
                                 if (yToPlot > highestY) {
                                     highestY = yToPlot;
                                 }
@@ -554,7 +580,18 @@ int* paint(std::string* canvas, geoSolid& shape, displayConfig& dispConf, bool d
     returnData[1] = highestY;
 
     if (!doShadow) {
-        paint(canvas, shape, dispConf, true);
+      paint(canvas, shape, dispConf, true);
+    }
+    else {
+        for (int i = 0; i < dispConf.gridHeight; i++) {
+            bool fromInRange = *(shadowCanvas + i * 2 + 0) != unpopulatedFlag;
+            bool toInRange = *(shadowCanvas + i * 2 + 1) != unpopulatedFlag;
+            if (fromInRange && toInRange) {
+                for (int x = *(shadowCanvas + i * 2 + 0); x <= *(shadowCanvas + i * 2 + 1); x++) {
+                    canvas[i][x] = '#';
+                }
+            }
+        }
     }
     return returnData;
 }
@@ -569,7 +606,7 @@ void functionalize(geoSolid& shape) {
         p1Index = *(shape.connectedPoints + (i * 2));
         p2Index = *(shape.connectedPoints + (i * 2) + 1);
         int* p1, * p2;
-        p1 = (cubeProjection + (p1Index * 3)); 
+        p1 = (cubeProjection + (p1Index * 3));
         p2 = (cubeProjection + (p2Index * 3));
         //if (p2 < p1) {
         //    p1 = (cubeProjection + (p2Index * 3));
@@ -636,7 +673,7 @@ void fixSideLength(geoSolid& shape, double targetLineLength) {
     }
 }
 
-void vectorSpread(geoSolid& shape, int p1Index, int p2Index, double targetLineLength) 
+void vectorSpread(geoSolid& shape, int p1Index, int p2Index, double targetLineLength)
 {
     //get point coordinates of each index
     double* p1 = (shape.points + (3 * p1Index));
@@ -761,7 +798,7 @@ int indexOfCharArr(char elem, char* arr, int len) {
 }
 
 int* indexOfIntArr(int* elem, int* arr, int rowlen, int collen, int elemlen) {
-    //get the indecies of 2d int* arr where the ints from int*elem are all present in the element of arr, doesn't do duplicate checks but is unneccessary in this context 
+    //get the indecies of 2d int* arr where the ints from int*elem are all present in the element of arr, doesn't do duplicate checks but is unneccessary in this context
     int* indecies = new int[2];
     int resultCount = 0;
     for (int i = 0; i < rowlen; i++) {
@@ -931,6 +968,9 @@ void init_shape(int shapeNum, geoSolid& shape) {
         {-1, -1, 1}, {1, -1, 1}, {-1, 1, 1}, {1, 1, 1}
         };
         arr_fill(shape.points, *pts, 8, 3);
+        shape.oppositeConnections = new int[8*2];
+        int oppCons[][2] = {{0,3}, {1,2}, {8,11}, {9,10}, {6,4}, {9,1}, {10,2}, {7,5}};
+        arr_fill(shape.oppositeConnections, *oppCons, 8,2);
         int conpts[][2] = {
         {0, 1}, {0, 2}, {1, 3}, {2, 3},
         {0, 4}, {1, 5}, {2, 6}, {3, 7},
@@ -945,7 +985,7 @@ void init_shape(int shapeNum, geoSolid& shape) {
         shape.projection = new int[3*8*3];
         shape.facesToPrint = new int[6];
         shape.lines = new double[12 * 4];
-        
+
         break;
     }
 }
@@ -954,7 +994,7 @@ void init_perspectives(perspectivePoint* perspectives) {
     //values for the sun & eye perspectivePoint instances, just a lot of text I wanted to take out of the main function
     perspectives[0].coord1 = 0;
     perspectives[0].coord2 = 2;
-    perspectives[0].planeVal = -70;
+    perspectives[0].planeVal = -90;
     perspectives[0].planeIndex = 1;
     perspectives[0].points = new double[3];
     perspectives[0].points[0] = 25;
