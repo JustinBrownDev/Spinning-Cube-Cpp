@@ -10,7 +10,7 @@
 #include <thread>
 #include <array>
 #define print_debug_information false
-
+#define use_default_dimensions true
 //Structs
 struct geoSolid{
   double* points;
@@ -842,7 +842,7 @@ int* get_screen_dimensions(int maxWidth, int maxHeight) {
     std::cout << "\n\n\n\n\nPlease Maximize your window then press enter" << '\n';
     std::cin.ignore();
     //debug information forces default dimensions for ease of use while testing
-    if (!print_debug_information) {
+    if (!use_default_dimensions) {
         std::string ymessage = "What is the highest number you can see on the screen? (0 for default values)";
         bool hasTriedY = false;
         bool hasTriedX = false;
@@ -860,9 +860,9 @@ int* get_screen_dimensions(int maxWidth, int maxHeight) {
             hasTriedY = true;
         } while (dimY < 0); //input validations
     }
-    if (dimY == 0 || print_debug_information) { /*=======Default Values=======*/
-        dimY = 61;
-        dimX = 200;
+    if (dimY == 0 || use_default_dimensions) { /*=======Default Values=======*/
+        dimY = 50;
+        dimX = 150;
     }
     else { /*=======Custom Values=======*/
         do { /* Input Validation Loop */
@@ -890,7 +890,7 @@ int* get_screen_dimensions(int maxWidth, int maxHeight) {
     //return data
     int* return_pointer = new int[2];
     return_pointer[0] = dimX;
-    return_pointer[1] = dimY + 1;
+    return_pointer[1] = dimY -4;
     return return_pointer;
 }
 
@@ -924,6 +924,7 @@ void print(std::string* canvas, displayConfig& dispConf, int lowestY) {
     for (int i = 0; i < dispConf.pushUp; i++) {
         linestr += '\n';
     }
+    std::cout << "\033[H";
     std::cout << linestr;
 }
 
